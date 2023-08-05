@@ -1,0 +1,156 @@
+######################################################
+# Terraform Test Workflow
+#
+# Performs a simple test to ensure that Terraform is:
+# - Formatted correctly
+# - (optional) Validates
+# - (optional) run tflint
+# - (optional) run tfsec
+#
+# ###OMITTED###
+# # permissions block is required
+# # to ensure it can write to checks and PRs
+# jobs:
+#   module_test_job:
+#     uses: ./.github/workflows/tf.test.yml # or: GITHUB_OWNER/REPO_NAME/.github/workflows/tf.test.yml@main
+#     with:
+#       terraform_path: path/to/module
+#     permissions:
+#       contents: read
+#       checks: write
+#       pull-requests: write
+# ###OMITTED###
+######################################################
+
+name: terraform - test
+
+on:
+  workflow_call:
+    inputs:
+      terraform_version:
+        type: string
+        description: Terraform version to use.
+        required: false
+        default: latest
+      terraform_path:
+        type: string
+        description: Path to the location of your Terraform configuration or module.
+        required: false
+        default: ${{ vars.GITHUB_WORKSPACE }}
+      enable_validate:
+        type: boolean
+        description: Run validate as part of the tests
+        required: false
+        default: true
+      enable_tflint:
+        type: boolean
+        description: Run tflint as part of the tests
+        required: false
+        default: true
+      enable_tfsec:
+        type: boolean
+        description: Run tfsec as part of the tests
+        required: false
+        default: true
+      reviewdog_pr_reporter:
+        type: string
+        description: The reporter to use with Reviewdog and PR.
+        required: false
+        default: github-pr-check
+
+env:
+  TF_IN_AUTOMATION: true
+  TF_INPUT: false
+
+jobs:
+  fmt:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ${{ inputs.terraform_path }}
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v3
+      - name: setup terraform
+        uses: hashicorp/setup-terraform@v2
+        with:
+          terraform_version: ${{ inputs.terraform_version }}
+      - name: terraform fmt
+        run: terraform fmt -check
+        continue-on-error: true
+
+  validate:
+    runs-on: ubuntu-latest
+    if: inputs.enable_validate
+    defaults:
+      run:
+        working-directory: ${{ inputs.terraform_path }}
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v3
+      - name: setup terraform
+        uses: hashicorp/setup-terraform@v2
+        with:
+          terraform_version: ${{ inputs.terraform_version }}
+      - name: terraform init
+        run: terraform init
+        env:
+          TF_CLI_ARGS_init: -backend=false
+      - name: terraform validate
+        run: terraform validate
+
+  tflint:
+    runs-on: ubuntu-latest
+    if: inputs.enable_tflint
+    permissions:
+      contents: read
+      checks: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v3
+      - name: tflint
+        uses: reviewdog/action-tflint@v1
+        with:
+          filter_mode: nofilter
+          reporter: github-check
+          fail_on_error: false
+          tflint_init: true
+          working_directory: ${{ inputs.terraform_path }}
+        if: github.event_name == 'push'
+      - name: tflint-pr
+        uses: reviewdog/action-tflint@v1
+        with:
+          filter_mode: nofilter
+          reporter: ${{ inputs.reviewdog_pr_reporter }}
+          fail_on_error: false
+          tflint_init: true
+          working_directory: ${{ inputs.terraform_path }}
+        if: github.event_name == 'pull_request'
+
+  tfsec:
+    runs-on: ubuntu-latest
+    if: inputs.enable_tfsec
+    permissions:
+      contents: read
+      checks: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v3
+      - name: tfsec
+        uses: reviewdog/action-tfsec@v1
+        with:
+          filter_mode: nofilter
+          reporter: github-check
+          fail_on_error: true
+          working_directory: ${{ inputs.terraform_path }}
+        if: github.event_name == 'push'
+      - name: tfsec-pr
+        uses: reviewdog/action-tfsec@v1
+        with:
+          filter_mode: nofilter
+          reporter: ${{ inputs.reviewdog_pr_reporter }}
+          fail_on_error: true
+          working_directory: ${{ inputs.terraform_path }}
+        if: github.event_name == 'pull_request'
