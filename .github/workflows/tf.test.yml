@@ -36,7 +36,7 @@ on:
         type: string
         description: Path to the location of your Terraform configuration or module.
         required: false
-        default: ${{ vars.GITHUB_WORKSPACE }}
+        default: "."
       enable_validate:
         type: boolean
         description: Run validate as part of the tests
